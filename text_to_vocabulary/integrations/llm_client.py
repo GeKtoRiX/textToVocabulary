@@ -1,6 +1,4 @@
 import json
-import urllib.error
-import urllib.request
 
 from text_to_vocabulary.config import DEFAULT_SYSTEM_PROMPT
 from text_to_vocabulary.domain.vocabulary import (
@@ -8,6 +6,12 @@ from text_to_vocabulary.domain.vocabulary import (
     dedupe_preserve_order,
     format_markdown_table,
 )
+from text_to_vocabulary.integrations.http_client import HttpClient
+from text_to_vocabulary.integrations.llm_cache import build_cache_key
+from text_to_vocabulary.integrations.token_budget import calculate_max_tokens
+
+CACHE_VERSION = 1
+_HTTP_CLIENT = HttpClient()
 
 
 def extract_json(content):
@@ -35,6 +39,10 @@ def normalize_endpoint(endpoint):
     return f"{cleaned}/v1/chat/completions"
 
 
+def _post_json(url, payload, *, timeout):
+    return _HTTP_CLIENT.post_json(url, payload, timeout=timeout)
+
+
 def request_vocabulary_analysis(
     endpoint,
     model,
@@ -43,6 +51,10 @@ def request_vocabulary_analysis(
     temperature=0.2,
     timeout=90,
     system_prompt=None,
+    context_limit=None,
+    max_output_tokens=None,
+    token_safety_margin=None,
+    cache=None,
 ):
     if not endpoint:
         raise ValueError("Endpoint is empty.")
@@ -58,6 +70,27 @@ def request_vocabulary_analysis(
     except (TypeError, ValueError):
         temperature = 0.2
 
+    cache_key = None
+    if cache is not None:
+        signature = {
+            "version": CACHE_VERSION,
+            "endpoint": endpoint,
+            "model": model,
+            "temperature": temperature,
+            "system_prompt": system_prompt,
+            "text": text,
+            "context_limit": context_limit,
+            "max_output_tokens": max_output_tokens,
+            "token_safety_margin": token_safety_margin,
+        }
+        cache_key = build_cache_key(signature)
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
+        if isinstance(cached, dict):
+            return cached
+
     payload = {
         "model": model,
         "messages": [
@@ -66,23 +99,14 @@ def request_vocabulary_analysis(
         ],
         "temperature": temperature,
     }
-
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        endpoint,
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Request failed ({exc.code}): {detail or exc.reason}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Request failed: {exc.reason}") from exc
-
+    budget_settings = {
+        "context_limit": context_limit,
+        "max_output_tokens": max_output_tokens,
+        "token_safety_margin": token_safety_margin,
+        "model": model,
+    }
+    payload["max_tokens"] = calculate_max_tokens(payload["messages"], budget_settings)
+    raw = _post_json(endpoint, payload, timeout=timeout)
     data = json.loads(raw)
     content = data["choices"][0]["message"]["content"]
     parsed = extract_json(content)
@@ -93,5 +117,11 @@ def request_vocabulary_analysis(
         key: dedupe_preserve_order(parsed.get(key, [])) for key in LEXICAL_CATEGORIES
     }
     result["table"] = format_markdown_table(result)
+
+    if cache is not None and cache_key is not None:
+        try:
+            cache.set(cache_key, result)
+        except Exception:
+            pass
 
     return result

@@ -43,10 +43,18 @@ def export_storage_to_ods(
     return _export_consolidated(storage, output_dir, consolidated_name)
 
 
+def _get_words_map(storage: VocabularyStorage) -> dict[str, list[str]]:
+    getter = getattr(storage, "get_words_by_category", None)
+    if callable(getter):
+        return getter()
+    return {category: storage.get_words(category) for category in LEXICAL_CATEGORIES}
+
+
 def _export_per_category(storage: VocabularyStorage, output_dir: str) -> dict:
     saved_files = {}
+    words_by_category = _get_words_map(storage)
     for category in LEXICAL_CATEGORIES:
-        words = storage.get_words(category)
+        words = words_by_category.get(category, [])
         path = os.path.join(output_dir, f"{category}.ods")
         write_words_to_ods(path, words)
         saved_files[category] = path
@@ -57,8 +65,9 @@ def _export_consolidated(
     storage: VocabularyStorage, output_dir: str, consolidated_name: str
 ) -> dict:
     rows = []
+    words_by_category = _get_words_map(storage)
     for category in LEXICAL_CATEGORIES:
-        words = storage.get_words(category)
+        words = words_by_category.get(category, [])
         rows.extend([(category, word) for word in words])
 
     path = os.path.join(output_dir, consolidated_name)

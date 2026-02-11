@@ -6,20 +6,6 @@ from text_to_vocabulary.integrations import llm_client
 from text_to_vocabulary.storage import ods_vocabulary_store as store
 
 
-class DummyResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def read(self):
-        return self._payload.encode("utf-8")
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
 def test_dedupe_preserve_order_strips():
     items = [" cat ", "dog", "cat", " ", "dog", "take off"]
     assert domain.dedupe_preserve_order(items) == ["cat", "dog", "take off"]
@@ -105,9 +91,9 @@ def test_request_analysis_requires_endpoint():
 def test_request_analysis_parses_response(monkeypatch):
     captured = {}
 
-    def fake_urlopen(request, timeout=90):
-        captured["url"] = request.full_url
-        captured["data"] = request.data
+    def fake_post_json(url, payload, timeout=90):
+        captured["url"] = url
+        captured["payload"] = payload
         response_payload = {
             "choices": [
                 {
@@ -123,9 +109,9 @@ def test_request_analysis_parses_response(monkeypatch):
                 }
             ]
         }
-        return DummyResponse(json.dumps(response_payload))
+        return json.dumps(response_payload)
 
-    monkeypatch.setattr(llm_client.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm_client, "_post_json", fake_post_json)
 
     result = llm_client.request_vocabulary_analysis(
         "http://127.0.0.1:1234",
@@ -134,7 +120,7 @@ def test_request_analysis_parses_response(monkeypatch):
         temperature=0.3,
         system_prompt="PROMPT",
     )
-    payload = json.loads(captured["data"].decode("utf-8"))
+    payload = captured["payload"]
 
     assert captured["url"].endswith("/v1/chat/completions")
     assert payload["model"] == "model-x"
@@ -150,16 +136,16 @@ def test_request_analysis_parses_response(monkeypatch):
 def test_request_analysis_default_model_and_messages(monkeypatch):
     captured = {}
 
-    def fake_urlopen(request, timeout=90):
-        captured["url"] = request.full_url
-        captured["data"] = request.data
+    def fake_post_json(url, payload, timeout=90):
+        captured["url"] = url
+        captured["payload"] = payload
         response_payload = {"choices": [{"message": {"content": '{"noun": []}'}}]}
-        return DummyResponse(json.dumps(response_payload))
+        return json.dumps(response_payload)
 
-    monkeypatch.setattr(llm_client.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm_client, "_post_json", fake_post_json)
 
     result = llm_client.request_vocabulary_analysis("http://127.0.0.1:1234", "   ", "Hello")
-    payload = json.loads(captured["data"].decode("utf-8"))
+    payload = captured["payload"]
 
     assert payload["model"] == "local-model"
     assert payload["temperature"] == 0.2

@@ -4,6 +4,11 @@ import os
 
 SETTINGS_FILENAME = "settings.json"
 DEFAULT_OUTPUT_DIRNAME = "exports"
+DEFAULT_CONTEXT_LIMIT = 16384
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
+DEFAULT_TOKEN_SAFETY_MARGIN = 200
+DEFAULT_LLM_CACHE_ENABLED = True
+DEFAULT_LLM_CACHE_MAX_ENTRIES = 500
 
 DEFAULT_SYSTEM_PROMPT = """You are a linguistic analysis assistant.
 
@@ -68,6 +73,9 @@ DEFAULT_SETTINGS = {
     "endpoint": "http://127.0.0.1:1234/v1/chat/completions",
     "model": "mistralai/ministral-3-14b-reasoning",
     "temperature": 0.2,
+    "context_limit": DEFAULT_CONTEXT_LIMIT,
+    "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
+    "token_safety_margin": DEFAULT_TOKEN_SAFETY_MARGIN,
     "system_prompt": DEFAULT_SYSTEM_PROMPT,
     "db_path": "vocabulary.db",
     "normalize_casefold": True,
@@ -75,6 +83,8 @@ DEFAULT_SETTINGS = {
     "export_mode": "per_category",
     "consolidated_export_name": "vocabulary_all.ods",
     "auto_import_ods": True,
+    "llm_cache_enabled": DEFAULT_LLM_CACHE_ENABLED,
+    "llm_cache_max_entries": DEFAULT_LLM_CACHE_MAX_ENTRIES,
 }
 
 
@@ -89,6 +99,16 @@ def _coerce_float(value, default):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_int(value, default, *, minimum=None):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
 
 
 def _coerce_bool(value, default):
@@ -113,7 +133,8 @@ def load_settings(path=None):
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"Missing settings.json at '{path}'. Create a settings.json file with "
-            "keys: endpoint, model, temperature, system_prompt, db_path."
+            "keys: endpoint, model, temperature, context_limit, max_output_tokens, "
+            "token_safety_margin, system_prompt, db_path."
         )
 
     settings = dict(DEFAULT_SETTINGS)
@@ -127,6 +148,17 @@ def load_settings(path=None):
         )
         settings["temperature"] = _coerce_float(
             data.get("temperature"), settings["temperature"]
+        )
+        settings["context_limit"] = _coerce_int(
+            data.get("context_limit"), settings["context_limit"], minimum=1
+        )
+        settings["max_output_tokens"] = _coerce_int(
+            data.get("max_output_tokens"), settings["max_output_tokens"], minimum=1
+        )
+        settings["token_safety_margin"] = _coerce_int(
+            data.get("token_safety_margin"),
+            settings["token_safety_margin"],
+            minimum=0,
         )
         settings["db_path"] = _coerce_str(data.get("db_path"), settings["db_path"])
         settings["normalize_casefold"] = _coerce_bool(
@@ -145,8 +177,25 @@ def load_settings(path=None):
         settings["auto_import_ods"] = _coerce_bool(
             data.get("auto_import_ods"), settings["auto_import_ods"]
         )
+        settings["llm_cache_enabled"] = _coerce_bool(
+            data.get("llm_cache_enabled"), settings["llm_cache_enabled"]
+        )
+        settings["llm_cache_max_entries"] = _coerce_int(
+            data.get("llm_cache_max_entries"),
+            settings["llm_cache_max_entries"],
+            minimum=0,
+        )
 
     return settings
+
+
+def apply_settings_defaults(settings):
+    merged = dict(DEFAULT_SETTINGS)
+    if isinstance(settings, dict):
+        for key, value in settings.items():
+            if value is not None:
+                merged[key] = value
+    return merged
 
 
 def resolve_default_output_dir(cwd=None):

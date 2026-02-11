@@ -25,6 +25,8 @@ def import_ods_to_storage(input_dir: str, storage: VocabularyStorage) -> dict:
         "total_added": 0,
     }
     casefold = getattr(storage, "casefold", True)
+    pending_imports = {}
+    category_meta = {}
 
     for category in LEXICAL_CATEGORIES:
         ods_path = os.path.join(input_dir, f"{category}.ods")
@@ -51,15 +53,29 @@ def import_ods_to_storage(input_dir: str, storage: VocabularyStorage) -> dict:
                 _cap_examples(malformed_examples, 5 - len(report["malformed"]["examples"]))
             )
 
-        added = storage.merge_words(category, cleaned_words, source="ods_import")
-        report["total_added"] += added
-
-        report["categories"][category] = {
+        pending_imports[category] = cleaned_words
+        category_meta[category] = {
             "source": source,
             "input_count": len(words),
-            "added": added,
             "unique_imported": len(cleaned_words),
         }
+
+    if pending_imports:
+        bulk_merge = getattr(storage, "merge_categories", None)
+        if callable(bulk_merge):
+            added_counts = bulk_merge(pending_imports, source="ods_import")
+            for category, meta in category_meta.items():
+                added = added_counts.get(category, 0)
+                meta["added"] = added
+                report["total_added"] += added
+                report["categories"][category] = meta
+        else:
+            for category, cleaned_words in pending_imports.items():
+                added = storage.merge_words(category, cleaned_words, source="ods_import")
+                report["total_added"] += added
+                meta = category_meta[category]
+                meta["added"] = added
+                report["categories"][category] = meta
 
     return report
 

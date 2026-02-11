@@ -4,8 +4,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from text_to_vocabulary.app.vocabulary_analysis import analyze_and_store, export_vocabulary
-from text_to_vocabulary.config import load_settings, resolve_default_output_dir
+from text_to_vocabulary.config import (
+    apply_settings_defaults,
+    load_settings,
+    resolve_default_output_dir,
+)
 from text_to_vocabulary.domain.vocabulary import LEXICAL_CATEGORIES, format_markdown_table
+from text_to_vocabulary.integrations.llm_cache import LLMResponseCache
 from text_to_vocabulary.storage.sqlite_vocabulary_storage import SQLiteVocabularyStorage
 
 
@@ -17,7 +22,7 @@ class VocabularyWindow(tk.Tk):
         self.minsize(900, 680)
 
         try:
-            settings = load_settings()
+            settings = apply_settings_defaults(load_settings())
         except FileNotFoundError as exc:
             messagebox.showerror("Missing settings.json", str(exc))
             self.destroy()
@@ -28,10 +33,15 @@ class VocabularyWindow(tk.Tk):
         self.model_var = tk.StringVar(value=settings["model"])
         self.temperature = settings["temperature"]
         self.system_prompt = settings["system_prompt"]
+        self.context_limit = settings["context_limit"]
+        self.max_output_tokens = settings["max_output_tokens"]
+        self.token_safety_margin = settings["token_safety_margin"]
         self.output_dir_var = tk.StringVar(value=resolve_default_output_dir())
         self.export_mode = settings["export_mode"]
         self.consolidated_export_name = settings["consolidated_export_name"]
         self.auto_import_ods = settings["auto_import_ods"]
+        self.llm_cache_enabled = settings["llm_cache_enabled"]
+        self.llm_cache_max_entries = settings["llm_cache_max_entries"]
         self.export_in_progress = False
 
         db_path = settings["db_path"]
@@ -45,6 +55,15 @@ class VocabularyWindow(tk.Tk):
             messagebox.showerror("SQLite setup failed", str(exc))
             self.destroy()
             raise SystemExit(1) from exc
+
+        self.llm_cache = None
+        if self.llm_cache_enabled:
+            try:
+                self.llm_cache = LLMResponseCache(
+                    db_path, max_entries=self.llm_cache_max_entries
+                )
+            except Exception:
+                self.llm_cache = None
 
         self._build_ui()
         self._update_export_state()
@@ -140,7 +159,11 @@ class VocabularyWindow(tk.Tk):
                 storage=self.storage,
                 temperature=self.temperature,
                 system_prompt=self.system_prompt,
+                context_limit=self.context_limit,
+                max_output_tokens=self.max_output_tokens,
+                token_safety_margin=self.token_safety_margin,
                 auto_import_ods=self.auto_import_ods,
+                cache=self.llm_cache,
             )
             summary = [table or format_markdown_table(data), "", "Stored in database."]
             if any(added_counts.values()):

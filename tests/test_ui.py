@@ -59,7 +59,11 @@ def test_run_request_success(monkeypatch, tmp_path):
         storage,
         temperature=0.2,
         system_prompt=None,
+        context_limit=None,
+        max_output_tokens=None,
+        token_safety_margin=None,
         auto_import_ods=True,
+        cache=None,
     ):
         return data, added_counts, data["table"], None
 
@@ -96,7 +100,11 @@ def test_run_request_error(monkeypatch, tmp_path):
         storage,
         temperature=0.2,
         system_prompt=None,
+        context_limit=None,
+        max_output_tokens=None,
+        token_safety_margin=None,
         auto_import_ods=True,
+        cache=None,
     ):
         raise RuntimeError("boom")
 
