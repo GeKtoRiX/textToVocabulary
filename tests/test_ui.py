@@ -47,7 +47,6 @@ def test_run_request_success(monkeypatch, tmp_path):
     data["table"] = "TABLE"
 
     added_counts = {key: 0 for key in domain.LEXICAL_CATEGORIES}
-    export_called = {"count": 0}
 
     def fake_analyze_and_store(
         text,
@@ -66,12 +65,7 @@ def test_run_request_success(monkeypatch, tmp_path):
     ):
         return data, added_counts, data["table"], None
 
-    def fake_export_vocabulary(*args, **kwargs):
-        export_called["count"] += 1
-        return {"mode": "per_category", "files": {}}, "Exported"
-
     monkeypatch.setattr(ui, "analyze_and_store", fake_analyze_and_store)
-    monkeypatch.setattr(ui, "export_vocabulary", fake_export_vocabulary)
 
     app._run_request("hello", str(tmp_path))
     app.update()
@@ -80,7 +74,6 @@ def test_run_request_success(monkeypatch, tmp_path):
     assert output.startswith("TABLE")
     assert "Stored in database." in output
     assert "Use Export to generate ODS files." in output
-    assert export_called["count"] == 0
     assert app.status_var.get() == "Done."
 
     app.destroy()
@@ -196,17 +189,17 @@ def test_export_action_success(monkeypatch, tmp_path):
 
     called = {}
 
-    def fake_export_vocabulary(*args, **kwargs):
+    def fake_export_multiple(*args, **kwargs):
         return {"mode": "per_category", "files": {}}, "Exported to exports"
 
     def fake_showinfo(title, message):
         called["title"] = title
         called["message"] = message
 
-    monkeypatch.setattr(ui, "export_vocabulary", fake_export_vocabulary)
+    monkeypatch.setattr(ui, "export_multiple_files", fake_export_multiple)
     monkeypatch.setattr(ui.messagebox, "showinfo", fake_showinfo)
 
-    app._run_export(str(tmp_path))
+    app._run_export("multiple", str(tmp_path))
     app.update()
 
     assert called["title"] == "Export complete"

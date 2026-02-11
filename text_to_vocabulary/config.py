@@ -31,11 +31,15 @@ Linguistic Processing Rules
    - Convert all common nouns to singular form.
    - Do NOT singularize pluralia tantum nouns (use standard English dictionary conventions, e.g., "scissors", "pants", "glasses").
    - Convert pronouns to their base nominative form while preserving grammatical number and person (e.g., "them" -> "they", "him" -> "he").
-   - Do NOT lemmatize or alter proper nouns; preserve their original capitalization.
+   - Do NOT lemmatize proper nouns; output them in lowercase.
+   - Output ALL lexical units in lowercase, regardless of source capitalization.
 
 4. Contextual Classification
    - Classify each lexical unit according to its actual syntactic and semantic function in the given text.
    - A lexical unit MAY appear in multiple categories if it performs different functions in the text.
+   - Do NOT treat uppercase or title case as a signal for proper_noun; decide based on meaning in context.
+   - Always classify "who" and "that" as pronoun.
+   - Classify honorifics/titles such as "mr." and "mrs." as title (lowercase).
 
 5. Multi-word Units
    - Detect and preserve phrasal verbs and idioms as single lexical units.
@@ -60,7 +64,7 @@ Output Requirements
 Return ONLY a valid JSON object and nothing else.
 
 Allowed keys:
-noun, verb, adjective, adverb, pronoun, proper_noun, article, determiner,
+noun, verb, adjective, adverb, pronoun, title, proper_noun, article, determiner,
 preposition, conjunction, numeral, particle, interjection,
 phrasal_verb, idiom, other
 

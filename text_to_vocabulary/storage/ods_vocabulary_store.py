@@ -1,5 +1,6 @@
 import os
 import zipfile
+from itertools import chain
 from xml.etree import ElementTree as ET
 
 from text_to_vocabulary.domain.vocabulary import LEXICAL_CATEGORIES, dedupe_preserve_order
@@ -177,12 +178,11 @@ def write_words_to_ods(path, words):
 def write_rows_to_ods(path, rows, headers=None):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
-    all_rows = []
+    row_iter = rows
     if headers:
-        all_rows.append(headers)
-    all_rows.extend(rows)
+        row_iter = chain([headers], rows)
 
-    content_xml = build_content_xml_rows(all_rows)
+    content_xml = build_content_xml_rows(row_iter)
     styles_xml = build_styles_xml()
     manifest_xml = build_manifest_xml()
 

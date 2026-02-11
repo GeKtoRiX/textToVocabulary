@@ -1,4 +1,5 @@
 import json
+import re
 
 from text_to_vocabulary.config import DEFAULT_SYSTEM_PROMPT
 from text_to_vocabulary.domain.vocabulary import (
@@ -116,6 +117,7 @@ def request_vocabulary_analysis(
     for key in LEXICAL_CATEGORIES:
         value = parsed.get(key, [])
         result[key] = value if isinstance(value, list) else []
+    _apply_title_rules(result, text)
     result["table"] = format_markdown_table(result)
 
     if cache is not None and cache_key is not None:
@@ -125,3 +127,56 @@ def request_vocabulary_analysis(
             pass
 
     return result
+
+
+_TITLE_VARIANTS = {
+    "mr.": {"mr", "mr."},
+    "mrs.": {"mrs", "mrs."},
+}
+_TITLE_PATTERNS = {
+    canonical: re.compile(rf"\\b{canonical.rstrip('.')}\\.?\\b", re.IGNORECASE)
+    for canonical in _TITLE_VARIANTS
+}
+
+
+def _apply_title_rules(result: dict, text: str) -> None:
+    title_key = "title"
+    found = set()
+
+    source_text = text or ""
+    for canonical, pattern in _TITLE_PATTERNS.items():
+        if pattern.search(source_text):
+            found.add(canonical)
+
+    for key, values in result.items():
+        if not isinstance(values, list):
+            continue
+        cleaned = []
+        for value in values:
+            if not isinstance(value, str):
+                cleaned.append(value)
+                continue
+            normalized = value.strip().lower()
+            matched = None
+            for canonical, variants in _TITLE_VARIANTS.items():
+                if normalized in variants:
+                    found.add(canonical)
+                    matched = canonical
+                    break
+            if matched:
+                continue
+            cleaned.append(value)
+        result[key] = cleaned
+
+    title_values = result.get(title_key, [])
+    if not isinstance(title_values, list):
+        title_values = []
+    existing = {
+        value.strip().lower()
+        for value in title_values
+        if isinstance(value, str) and value.strip()
+    }
+    for canonical in sorted(found):
+        if canonical not in existing:
+            title_values.append(canonical)
+    result[title_key] = title_values

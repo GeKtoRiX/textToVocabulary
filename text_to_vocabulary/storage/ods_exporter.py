@@ -43,6 +43,27 @@ def export_storage_to_ods(
     return _export_consolidated(storage, output_dir, consolidated_name)
 
 
+def export_storage_to_single_file(storage: VocabularyStorage, file_path: str) -> dict:
+    words_by_category = _get_words_map(storage)
+    max_len = max(
+        (len(words_by_category.get(category, [])) for category in LEXICAL_CATEGORIES),
+        default=0,
+    )
+    category_words = [
+        words_by_category.get(category, []) for category in LEXICAL_CATEGORIES
+    ]
+
+    def iter_rows():
+        for index in range(max_len):
+            yield [
+                words[index] if index < len(words) else None
+                for words in category_words
+            ]
+
+    write_rows_to_ods(file_path, iter_rows(), headers=LEXICAL_CATEGORIES)
+    return {"mode": "single", "files": {"single": file_path}}
+
+
 def _get_words_map(storage: VocabularyStorage) -> dict[str, list[str]]:
     getter = getattr(storage, "get_words_by_category", None)
     if callable(getter):

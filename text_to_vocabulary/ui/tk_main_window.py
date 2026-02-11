@@ -3,7 +3,11 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from text_to_vocabulary.app.vocabulary_analysis import analyze_and_store, export_vocabulary
+from text_to_vocabulary.app.vocabulary_analysis import (
+    analyze_and_store,
+    export_multiple_files,
+    export_single_file,
+)
 from text_to_vocabulary.config import (
     apply_settings_defaults,
     load_settings,
@@ -12,6 +16,7 @@ from text_to_vocabulary.config import (
 from text_to_vocabulary.domain.vocabulary import LEXICAL_CATEGORIES, format_markdown_table
 from text_to_vocabulary.integrations.llm_cache import LLMResponseCache
 from text_to_vocabulary.storage.sqlite_vocabulary_storage import SQLiteVocabularyStorage
+from text_to_vocabulary.ui_db_editor import DatabaseEditorWindow
 
 
 class VocabularyWindow(tk.Tk):
@@ -43,6 +48,7 @@ class VocabularyWindow(tk.Tk):
         self.llm_cache_enabled = settings["llm_cache_enabled"]
         self.llm_cache_max_entries = settings["llm_cache_max_entries"]
         self.export_in_progress = False
+        self.export_multiple_var = tk.BooleanVar(value=False)
 
         db_path = settings["db_path"]
         if not os.path.isabs(db_path):
@@ -68,6 +74,12 @@ class VocabularyWindow(tk.Tk):
 
     def _build_ui(self):
         padding = {"padx": 10, "pady": 8}
+
+        menubar = tk.Menu(self)
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(label="Open .db...", command=self._open_database_editor)
+        menubar.add_cascade(label="File", menu=file_menu)
+        self.config(menu=menubar)
 
         config_frame = ttk.LabelFrame(self, text="LM Studio Config")
         config_frame.grid(row=0, column=0, sticky="ew", **padding)
@@ -105,7 +117,7 @@ class VocabularyWindow(tk.Tk):
 
         action_frame = ttk.Frame(self)
         action_frame.grid(row=2, column=0, sticky="ew", **padding)
-        action_frame.columnconfigure(2, weight=1)
+        action_frame.columnconfigure(3, weight=1)
 
         self.process_button = ttk.Button(action_frame, text="Process text", command=self._on_process)
         self.process_button.grid(row=0, column=0, sticky="w")
@@ -113,10 +125,30 @@ class VocabularyWindow(tk.Tk):
             action_frame, text="Export", command=self._on_export, state="disabled"
         )
         self.export_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
-        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=2, sticky="e")
+        export_mode_check = ttk.Checkbutton(
+            action_frame,
+            text="Export as multiple files",
+            variable=self.export_multiple_var,
+        )
+        export_mode_check.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        ttk.Label(action_frame, textvariable=self.status_var).grid(row=0, column=3, sticky="e")
 
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+
+    def _open_database_editor(self):
+        initial_dir = os.path.dirname(self.storage.db_path)
+        db_path = filedialog.askopenfilename(
+            title="Open SQLite database",
+            initialdir=initial_dir,
+            filetypes=[
+                ("SQLite Database", "*.db;*.sqlite;*.sqlite3"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not db_path:
+            return
+        DatabaseEditorWindow(self, db_path=db_path)
 
     def _browse_output_dir(self):
         chosen = filedialog.askdirectory(initialdir=self.output_dir_var.get())
@@ -206,26 +238,52 @@ class VocabularyWindow(tk.Tk):
         if self.storage.is_empty():
             messagebox.showwarning("Nothing to export", "No vocabulary data to export yet.")
             return
-        output_dir = self.output_dir_var.get().strip()
-        if not output_dir:
-            messagebox.showwarning("Missing output dir", "Please choose an output directory.")
-            return
+
+        export_multiple = self.export_multiple_var.get()
+        if export_multiple:
+            output_dir = self.output_dir_var.get().strip()
+            if not output_dir:
+                messagebox.showwarning("Missing output dir", "Please choose an output directory.")
+                return
+            target = output_dir
+            mode = "multiple"
+        else:
+            initial_dir = self.output_dir_var.get().strip() or os.getcwd()
+            initial_name = self.consolidated_export_name or "vocabulary_all.ods"
+            file_path = filedialog.asksaveasfilename(
+                title="Save vocabulary export",
+                initialdir=initial_dir,
+                initialfile=initial_name,
+                defaultextension=".ods",
+                filetypes=[
+                    ("OpenDocument Spreadsheet", "*.ods"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not file_path:
+                return
+            target = file_path
+            mode = "single"
 
         self.export_in_progress = True
         self.export_button.configure(state="disabled")
         self.status_var.set("Exporting ODS...")
 
-        thread = threading.Thread(target=self._run_export, args=(output_dir,), daemon=True)
+        thread = threading.Thread(target=self._run_export, args=(mode, target), daemon=True)
         thread.start()
 
-    def _run_export(self, output_dir):
+    def _run_export(self, mode, target):
         try:
-            _result, message = export_vocabulary(
-                storage=self.storage,
-                output_dir=output_dir,
-                export_mode=self.export_mode,
-                consolidated_export_name=self.consolidated_export_name,
-            )
+            if mode == "single":
+                _result, message = export_single_file(
+                    storage=self.storage,
+                    file_path=target,
+                )
+            else:
+                _result, message = export_multiple_files(
+                    storage=self.storage,
+                    output_dir=target,
+                )
             self.after(0, lambda: self._on_export_success(message))
         except Exception as exc:
             self.after(0, lambda: self._on_export_error(str(exc)))

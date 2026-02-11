@@ -190,12 +190,18 @@ class SQLiteVocabularyStorage(VocabularyStorage):
 
     def _prepare_words(self, words: Iterable[str]) -> list[tuple[str, str]]:
         prepared = []
+        seen = set()
         for word in words or []:
             if not isinstance(word, str):
                 continue
-            if not word:
+            cleaned = word.strip()
+            if not cleaned:
                 continue
-            prepared.append((word, word))
+            lemma = cleaned.casefold()
+            if lemma in seen:
+                continue
+            seen.add(lemma)
+            prepared.append((lemma, cleaned))
         return prepared
 
     def _get_category_id(self, conn: sqlite3.Connection, category: str) -> int:
@@ -371,13 +377,12 @@ class SQLiteVocabularyStorage(VocabularyStorage):
 
             for category, prepared in prepared_by_category.items():
                 category_id = self._category_ids[category]
-                before_count = _count_category_words(conn, category_id)
                 rows = [
                     (category_id, word_ids[lemma], surface, source)
                     for lemma, surface in prepared
                 ]
 
-                conn.executemany(
+                insert_cursor = conn.executemany(
                     """
                     INSERT OR IGNORE INTO category_words(
                         category_id, word_id, surface_form, source
@@ -385,8 +390,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
                     """,
                     rows,
                 )
-                after_count = _count_category_words(conn, category_id)
-                counts[category] = after_count - before_count
+                counts[category] = max(insert_cursor.rowcount, 0)
 
                 conn.executemany(
                     """
@@ -446,8 +450,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
             for lemma, surface in prepared
         ]
 
-        before_count = _count_category_words(conn, category_id)
-        conn.executemany(
+        insert_cursor = conn.executemany(
             """
             INSERT OR IGNORE INTO category_words(
                 category_id, word_id, surface_form, source
@@ -455,8 +458,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
             """,
             rows,
         )
-        after_count = _count_category_words(conn, category_id)
-        added = after_count - before_count
+        added = max(insert_cursor.rowcount, 0)
 
         if update_existing:
             conn.executemany(

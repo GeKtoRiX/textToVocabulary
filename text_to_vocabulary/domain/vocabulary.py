@@ -13,6 +13,7 @@ LEXICAL_CATEGORIES = [
     "numeral",
     "particle",
     "determiner",
+    "title",
     "proper_noun",
     "other",
 ]

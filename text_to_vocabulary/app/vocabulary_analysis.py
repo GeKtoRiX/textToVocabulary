@@ -1,6 +1,9 @@
 from text_to_vocabulary.domain.vocabulary import LEXICAL_CATEGORIES, format_markdown_table
 from text_to_vocabulary.integrations.llm_client import request_vocabulary_analysis
-from text_to_vocabulary.storage.ods_exporter import export_storage_to_ods
+from text_to_vocabulary.storage.ods_exporter import (
+    export_storage_to_ods,
+    export_storage_to_single_file,
+)
 from text_to_vocabulary.storage.ods_importer import import_ods_to_storage
 from text_to_vocabulary.storage.vocabulary_storage import VocabularyStorage
 
@@ -73,4 +76,26 @@ def export_vocabulary(
         message = f"Exported ODS files to {output_dir}"
     else:
         message = f"Exported consolidated file to {result['files']['consolidated']}"
+    return result, message
+
+
+def export_multiple_files(*, storage, output_dir):
+    if not isinstance(storage, VocabularyStorage):
+        raise TypeError("storage must implement VocabularyStorage")
+    if storage.is_empty():
+        raise ValueError("No vocabulary data to export.")
+
+    result = export_storage_to_ods(storage, output_dir, mode="per_category")
+    message = f"Exported ODS files to {output_dir}"
+    return result, message
+
+
+def export_single_file(*, storage, file_path):
+    if not isinstance(storage, VocabularyStorage):
+        raise TypeError("storage must implement VocabularyStorage")
+    if storage.is_empty():
+        raise ValueError("No vocabulary data to export.")
+
+    result = export_storage_to_single_file(storage, file_path)
+    message = f"Exported file to {file_path}"
     return result, message
