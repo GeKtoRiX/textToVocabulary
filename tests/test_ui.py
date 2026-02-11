@@ -14,7 +14,6 @@ def _stub_settings(tmp_path):
         "temperature": 0.2,
         "system_prompt": "PROMPT",
         "db_path": str(tmp_path / "vocabulary.db"),
-        "normalize_casefold": True,
         "export_mode": "per_category",
         "consolidated_export_name": "vocabulary_all.ods",
         "auto_import_ods": False,

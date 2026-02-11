@@ -10,8 +10,8 @@ from text_to_vocabulary.storage.sqlite_vocabulary_storage import SQLiteVocabular
 from text_to_vocabulary.storage.vocabulary_storage import VocabularyStorage
 
 
-def import_ods_to_sqlite(input_dir: str, db_path: str, *, casefold: bool = True) -> dict:
-    storage = SQLiteVocabularyStorage(db_path, casefold=casefold)
+def import_ods_to_sqlite(input_dir: str, db_path: str) -> dict:
+    storage = SQLiteVocabularyStorage(db_path)
     return import_ods_to_storage(input_dir, storage)
 
 
@@ -24,7 +24,6 @@ def import_ods_to_storage(input_dir: str, storage: VocabularyStorage) -> dict:
         "malformed": {"count": 0, "examples": []},
         "total_added": 0,
     }
-    casefold = getattr(storage, "casefold", True)
     pending_imports = {}
     category_meta = {}
 
@@ -46,7 +45,7 @@ def import_ods_to_storage(input_dir: str, storage: VocabularyStorage) -> dict:
             report["errors"].append({"path": ods_path if source == "ods" else txt_path, "error": error})
             continue
 
-        cleaned_words, malformed_examples = _normalize_import_words(words, casefold)
+        cleaned_words, malformed_examples = _filter_import_words(words)
         report["malformed"]["count"] += len(malformed_examples)
         if malformed_examples:
             report["malformed"]["examples"].extend(
@@ -87,26 +86,18 @@ def _safe_read(path: str, reader) -> tuple[list[str], str | None]:
         return [], str(exc)
 
 
-def _normalize_import_words(words: Iterable[str], casefold: bool) -> tuple[list[str], list[str]]:
+def _filter_import_words(words: Iterable[str]) -> tuple[list[str], list[str]]:
     cleaned = []
     malformed = []
-    seen = set()
 
     for word in words:
-        if word is None:
-            malformed.append("")
-            continue
         if not isinstance(word, str):
-            word = str(word)
-        display = word.strip()
-        if not display:
+            malformed.append("" if word is None else str(word))
+            continue
+        if not word:
             malformed.append(word)
             continue
-        normalized = display.casefold() if casefold else display
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        cleaned.append(display)
+        cleaned.append(word)
 
     return cleaned, malformed
 

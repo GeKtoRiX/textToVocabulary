@@ -3,7 +3,6 @@ import re
 import sqlite3
 from typing import Iterable
 
-from text_to_vocabulary.domain.normalization import canonicalize, canonicalize_batch
 from text_to_vocabulary.domain.vocabulary import LEXICAL_CATEGORIES
 from text_to_vocabulary.storage.vocabulary_storage import VocabularyStorage
 
@@ -132,9 +131,8 @@ CREATE TABLE category_words_new (
 
 
 class SQLiteVocabularyStorage(VocabularyStorage):
-    def __init__(self, db_path: str, *, casefold: bool = True):
+    def __init__(self, db_path: str):
         self.db_path = db_path
-        self.casefold = casefold
         self._category_ids: dict[str, int] = {}
         self._fts_available = False
         self._ensure_schema()
@@ -190,18 +188,14 @@ class SQLiteVocabularyStorage(VocabularyStorage):
             """
         )
 
-    def _prepare_words(self, category: str, words: Iterable[str]) -> list[tuple[str, str]]:
+    def _prepare_words(self, words: Iterable[str]) -> list[tuple[str, str]]:
         prepared = []
-        seen = set()
-        for lemma, surface in canonicalize_batch(
-            words, category, use_casefold=self.casefold
-        ):
-            if not lemma or not surface:
+        for word in words or []:
+            if not isinstance(word, str):
                 continue
-            if lemma in seen:
+            if not word:
                 continue
-            seen.add(lemma)
-            prepared.append((lemma, surface))
+            prepared.append((word, word))
         return prepared
 
     def _get_category_id(self, conn: sqlite3.Connection, category: str) -> int:
@@ -273,9 +267,6 @@ class SQLiteVocabularyStorage(VocabularyStorage):
             if search:
                 normalized = search.strip()
                 if normalized:
-                    normalized = (
-                        normalized.casefold() if self.casefold else normalized.lower()
-                    )
                     if self._fts_available:
                         fts_query = _build_fts_query(normalized)
                         if fts_query:
@@ -287,7 +278,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
                                 offset=offset,
                             )
                     search_clause = " AND (w.lemma LIKE ? OR cw.surface_form LIKE ?)"
-                    params.extend([f"%{normalized}%", f"%{search.strip()}%"])
+                    params.extend([f"%{normalized}%", f"%{normalized}%"])
 
             limit_clause = ""
             if limit is not None:
@@ -358,7 +349,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
         prepared_by_category = {}
         all_lemmas = set()
         for category, words in category_word_map.items():
-            prepared = self._prepare_words(category, words)
+            prepared = self._prepare_words(words)
             if not prepared:
                 continue
             prepared_by_category[category] = prepared
@@ -439,7 +430,7 @@ class SQLiteVocabularyStorage(VocabularyStorage):
         source: str | None,
         update_existing: bool,
     ) -> int:
-        prepared = self._prepare_words(category, words)
+        prepared = self._prepare_words(words)
         if not prepared:
             return 0
 
@@ -507,106 +498,30 @@ class SQLiteVocabularyStorage(VocabularyStorage):
             conn.execute("DROP TABLE IF EXISTS category_words_new")
             conn.executescript(MIGRATION_SCHEMA_SQL)
 
-            rows = conn.execute(
-                """
-                SELECT cw.category_id,
-                       c.name,
-                       cw.display_text,
-                       cw.created_at,
-                       cw.source,
-                       cw.frequency
-                FROM category_words cw
-                JOIN categories c ON c.id = cw.category_id
-                ORDER BY cw.id
-                """
-            ).fetchall()
+            lemma_col = "normalized_text" if "normalized_text" in words_cols else "lemma"
+            surface_col = (
+                "display_text" if "display_text" in category_cols else "surface_form"
+            )
 
-            lemma_ids: dict[str, int] = {}
-            merged: dict[tuple[int, int], dict] = {}
-
-            for category_id, category_name, display_text, created_at, source, frequency in rows:
-                try:
-                    lemma, surface = canonicalize(
-                        display_text, category_name, use_casefold=self.casefold
-                    )
-                except ValueError:
-                    continue
-
-                lemma_id = lemma_ids.get(lemma)
-                if lemma_id is None:
-                    cur = conn.execute(
-                        "INSERT INTO words_new(lemma) VALUES (?)",
-                        (lemma,),
-                    )
-                    lemma_id = cur.lastrowid
-                    lemma_ids[lemma] = lemma_id
-
-                key = (category_id, lemma_id)
-                existing = merged.get(key)
-                frequency_value = frequency if frequency is not None else 1
-                if existing is None:
-                    cur = conn.execute(
-                        """
-                        INSERT INTO category_words_new(
-                            category_id, word_id, surface_form, created_at, source, frequency
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            category_id,
-                            lemma_id,
-                            surface,
-                            created_at,
-                            source,
-                            frequency_value,
-                        ),
-                    )
-                    merged[key] = {
-                        "id": cur.lastrowid,
-                        "surface": surface,
-                        "source": source,
-                        "created_at": created_at,
-                        "frequency": frequency_value,
-                    }
-                    continue
-
-                updated_surface = existing["surface"] or surface
-                updated_source = existing["source"] or source
-                updated_created = _earliest_timestamp(
-                    existing["created_at"], created_at
+            conn.execute(
+                f"INSERT INTO words_new(id, lemma) SELECT id, {lemma_col} FROM words"
+            )
+            conn.execute(
+                f"""
+                INSERT OR IGNORE INTO category_words_new(
+                    id, category_id, word_id, surface_form, created_at, source, frequency
                 )
-                updated_frequency = (existing["frequency"] or 0) + frequency_value
-
-                if (
-                    updated_surface != existing["surface"]
-                    or updated_source != existing["source"]
-                    or updated_created != existing["created_at"]
-                    or updated_frequency != existing["frequency"]
-                ):
-                    conn.execute(
-                        """
-                        UPDATE category_words_new
-                        SET surface_form = ?,
-                            source = ?,
-                            created_at = ?,
-                            frequency = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            updated_surface,
-                            updated_source,
-                            updated_created,
-                            updated_frequency,
-                            existing["id"],
-                        ),
-                    )
-                    existing.update(
-                        {
-                            "surface": updated_surface,
-                            "source": updated_source,
-                            "created_at": updated_created,
-                            "frequency": updated_frequency,
-                        }
-                    )
+                SELECT
+                    id,
+                    category_id,
+                    word_id,
+                    {surface_col},
+                    created_at,
+                    source,
+                    COALESCE(frequency, 1)
+                FROM category_words
+                """
+            )
 
             conn.execute("ALTER TABLE category_words RENAME TO category_words_old")
             conn.execute("ALTER TABLE words RENAME TO words_old")
@@ -651,14 +566,6 @@ def _count_category_words(conn: sqlite3.Connection, category_id: int) -> int:
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {row[1] for row in rows}
-
-
-def _earliest_timestamp(value: str | None, other: str | None) -> str | None:
-    if not value:
-        return other
-    if not other:
-        return value
-    return value if value <= other else other
 
 
 _FTS_TOKEN_RE = re.compile(r"[\w']+")

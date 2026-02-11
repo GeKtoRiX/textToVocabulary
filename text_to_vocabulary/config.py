@@ -67,6 +67,7 @@ phrasal_verb, idiom, other
 Rules:
 - Each key must have an array of strings as its value.
 - Use an empty array [] if no items are found for a category.
+- Output is stored as-is; ensure entries are already normalized and trimmed.
 Do not include any additional keys."""
 
 DEFAULT_SETTINGS = {
@@ -78,7 +79,6 @@ DEFAULT_SETTINGS = {
     "token_safety_margin": DEFAULT_TOKEN_SAFETY_MARGIN,
     "system_prompt": DEFAULT_SYSTEM_PROMPT,
     "db_path": "vocabulary.db",
-    "normalize_casefold": True,
     "export_on_process": False,
     "export_mode": "per_category",
     "consolidated_export_name": "vocabulary_all.ods",
@@ -161,9 +161,6 @@ def load_settings(path=None):
             minimum=0,
         )
         settings["db_path"] = _coerce_str(data.get("db_path"), settings["db_path"])
-        settings["normalize_casefold"] = _coerce_bool(
-            data.get("normalize_casefold"), settings["normalize_casefold"]
-        )
         settings["export_on_process"] = _coerce_bool(
             data.get("export_on_process"), settings["export_on_process"]
         )

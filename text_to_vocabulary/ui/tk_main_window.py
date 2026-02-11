@@ -48,9 +48,7 @@ class VocabularyWindow(tk.Tk):
         if not os.path.isabs(db_path):
             db_path = os.path.join(os.getcwd(), db_path)
         try:
-            self.storage = SQLiteVocabularyStorage(
-                db_path, casefold=settings["normalize_casefold"]
-            )
+            self.storage = SQLiteVocabularyStorage(db_path)
         except Exception as exc:
             messagebox.showerror("SQLite setup failed", str(exc))
             self.destroy()

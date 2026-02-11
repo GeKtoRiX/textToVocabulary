@@ -3,7 +3,6 @@ import json
 from text_to_vocabulary.config import DEFAULT_SYSTEM_PROMPT
 from text_to_vocabulary.domain.vocabulary import (
     LEXICAL_CATEGORIES,
-    dedupe_preserve_order,
     format_markdown_table,
 )
 from text_to_vocabulary.integrations.http_client import HttpClient
@@ -113,9 +112,10 @@ def request_vocabulary_analysis(
     if not isinstance(parsed, dict):
         raise ValueError("Model response JSON must be an object.")
 
-    result = {
-        key: dedupe_preserve_order(parsed.get(key, [])) for key in LEXICAL_CATEGORIES
-    }
+    result = {}
+    for key in LEXICAL_CATEGORIES:
+        value = parsed.get(key, [])
+        result[key] = value if isinstance(value, list) else []
     result["table"] = format_markdown_table(result)
 
     if cache is not None and cache_key is not None:

@@ -126,8 +126,8 @@ def test_request_analysis_parses_response(monkeypatch):
     assert payload["model"] == "model-x"
     assert payload["temperature"] == 0.3
     assert payload["messages"][0]["content"] == "PROMPT"
-    assert result["noun"] == ["cat", "dog"]
-    assert result["phrasal_verb"] == ["take off"]
+    assert result["noun"] == ["cat", "cat", " dog "]
+    assert result["phrasal_verb"] == ["take off", "take off"]
     assert result["table"] == domain.format_markdown_table(result)
     for key in domain.LEXICAL_CATEGORIES:
         assert key in result
